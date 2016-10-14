@@ -1,2 +1,2 @@
 # ipa
-Set the Network IP Address
+Automate IP Address Management
