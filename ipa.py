@@ -101,7 +101,7 @@ class Interface(object):
             cmdout
         except NameError:
             cmdout = None
-        defout = {'cmdout': cmdout, 'netrestart': netrestart, 'ostype': self.ostype}
+        defout = {'cmdout': cmdout, 'netrestart': netrestart}
         return defout
 
     def add_dnssrv(self):
@@ -147,7 +147,7 @@ class Interface(object):
             cmdout
         except NameError:
             cmdout = None
-        defout = {'cmdout': cmdout, 'netrestart': netrestart, 'ostype': self.ostype}
+        defout = {'cmdout': cmdout, 'netrestart': netrestart}
         return defout
 
     def add_dnssuff(self):
@@ -189,7 +189,7 @@ class Interface(object):
             cmdout
         except NameError:
             cmdout = None
-        defout = {'cmdout': cmdout, 'netrestart': netrestart, 'ostype': self.ostype}
+        defout = {'cmdout': cmdout, 'netrestart': netrestart}
         return defout
 
     def add_route(self):
@@ -221,7 +221,7 @@ class Interface(object):
             cmdout
         except NameError:
             cmdout = None
-        defout = {'cmdout': cmdout, 'netrestart': netrestart, 'ostype': self.ostype}
+        defout = {'cmdout': cmdout, 'netrestart': netrestart}
         return defout
 
     def ch_defroute(self):
@@ -261,7 +261,7 @@ class Interface(object):
             cmdout
         except NameError:
             cmdout = None
-        defout = {'cmdout': cmdout, 'netrestart': netrestart, 'ostype': self.ostype}
+        defout = {'cmdout': cmdout, 'netrestart': netrestart}
         return defout
 
     def ch_nicname(self):
@@ -293,7 +293,7 @@ class Interface(object):
             cmdout
         except NameError:
             cmdout = None
-        defout = {'cmdout': cmdout, 'netrestart': netrestart, 'ostype': self.ostype}
+        defout = {'cmdout': cmdout, 'netrestart': netrestart}
         return defout
 
 def main():
@@ -329,28 +329,60 @@ def main():
     logging.info(pprint.pprint(vars(args)))	
 
     nic = Interface(argsdict)
- 
+
+    netrestart = False	# request or not network service restart
+
+    # Set IP Data
     set_ip = nic.set_ip()
     print(set_ip)
+    logging.info("Add set IP command output is: [ %s ] and restart requirements is %s", set_ip.get("cmdout"), set_ip.get("netrestart"))
+    netrestart = True if set_ip.get("netrestart") else False
+
+    # Add DNS Servers
     add_dnssrv = nic.add_dnssrv()
     print(add_dnssrv)
+    logging.info("Add DNS servers command output is: [ %s ] and restart requirements is %s", add_dnssrv.get("cmdout"), add_dnssrv.get("netrestart"))
+    netrestart = True if add_dnssrv.get("netrestart") else False
+
+    # Add DNS Suffixes
     add_dnssuff = nic.add_dnssuff()
     print(add_dnssuff)
+    logging.info("Add DNS suffixes command output is: [ %s ] and restart requirements is %s", add_dnssuff.get("cmdout"), add_dnssuff.get("netrestart"))
+    netrestart = True if add_dnssuff.get("netrestart") else False
+
+    # Add Static Route Servers
+    add_route = nic.add_route()
+    print(add_route)
+    logging.info("Add route command output is: [ %s ] and restart requirements is %s", add_route.get("cmdout"), add_route.get("netrestart"))
+    netrestart = True if add_route.get("netrestart") else False
+
+    # Change Default Route
+    ch_defroute = nic.ch_defroute()
+    print(ch_defroute)
+    logging.info("Change default route command output is: [ %s ] and restart requirements is %s", ch_defroute.get("cmdout"), ch_defroute.get("netrestart"))
+    netrestart = True if ch_defroute.get("netrestart") else False
+
+    # Change Interface Name
     ch_nicname = nic.ch_nicname()
     print(ch_nicname)
-    add_route = nic.add_route()
-    print add_route
-    logging.info("Add route command output is: [ %s ] and restart requirements is %s", add_route.get("cmdout"), add_route.get("netrestart"))
-    if add_route.get("netrestart"):
-        if add_route.get("netrestart") == "redhat" or add_route.get("netrestart") == "suse":
+    logging.info("Change interface name command output is: [ %s ] and restart requirements is %s", ch_nicname.get("cmdout"), ch_nicname.get("netrestart"))
+    netrestart = True if ch_nicname.get("netrestart") else False
+
+    # Restart Networking Service
+    if netrestart:
+        if nic.ostype == "redhat" or nic.ostype == "suse":
             print "service network restart"
         else:
             print 'Windows restart required: shutdown /r /t 1 /f /c "restart due to network configuration change"'
-    ch_defroute = nic.ch_defroute()
-    print(ch_defroute)
 
+    # Update the server object hardware inventory in HPSA
     logging.info("Update the server object in HPSA")
-    call(r"C:\Program Files\Opsware\agent\pylibs\cog\bs_hardware.bat")
+    if nic.ostype == "windows":
+        call(r"C:\Program Files\Opsware\agent\pylibs\cog\bs_hardware.bat")
+    else:
+        call(r"/opt/opsware/agent/pylibs/cog/bs_hardware")
+
+    logging.info("Successfully completed IP configuration")
 
 if __name__ == '__main__':
     try:
