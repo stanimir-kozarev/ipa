@@ -74,6 +74,7 @@ class Interface(object):
         return stdout
 
     def set_ip(self):
+        netrestart = False	# request or not network service restart
         if self.ostype == "windows":
             try:
                 cmdLine = 'netsh int ip set address "' + self.nicname + '" static ' + self.nicip + ' ' + self.nicmask + (' ' + self.nicgw if self.nicgw else '')
@@ -100,9 +101,11 @@ class Interface(object):
             cmdout
         except NameError:
             cmdout = None
-        return cmdout
+        defout = {'cmdout': cmdout, 'netrestart': netrestart, 'ostype': self.ostype}
+        return defout
 
     def add_dnssrv(self):
+        netrestart = False	# request or not network service restart
         if self.ostype == "windows":
             try:
                 if self.dnsips:
@@ -144,9 +147,11 @@ class Interface(object):
             cmdout
         except NameError:
             cmdout = None
-        return cmdout
+        defout = {'cmdout': cmdout, 'netrestart': netrestart, 'ostype': self.ostype}
+        return defout
 
     def add_dnssuff(self):
+        netrestart = False	# request or not network service restart
         if self.ostype == "windows":
             try:
                 if self.dnssuffixes:
@@ -184,9 +189,11 @@ class Interface(object):
             cmdout
         except NameError:
             cmdout = None
-        return cmdout
+        defout = {'cmdout': cmdout, 'netrestart': netrestart, 'ostype': self.ostype}
+        return defout
 
     def add_route(self):
+        netrestart = False	# request or not network service restart
         if self.ostype == "windows":
             try:
                 if self.routenet and self.routemask and self.routegw:
@@ -200,13 +207,13 @@ class Interface(object):
                 raise RuntimeError('The command failed')
         if self.ostype == "redhat":
             try:
-                print "Red Had set DNS"
+                print "Red Had add static route"
             except:
                 print "Something Didn't Work in Red Had with adding static route"
                 raise RuntimeError('The command failed')
         if self.ostype == "suse":
             try:
-                print "SUSE set DNS"	
+                print "SUSE  add static route"
             except:
                 print "Something Didn't Work in SUSE with adding static route"
                 raise RuntimeError('The command failed')
@@ -214,9 +221,11 @@ class Interface(object):
             cmdout
         except NameError:
             cmdout = None
-        return cmdout
+        defout = {'cmdout': cmdout, 'netrestart': netrestart, 'ostype': self.ostype}
+        return defout
 
     def ch_defroute(self):
+        netrestart = False	# request or not network service restart
         if self.ostype == "windows":
             try:
                 if self.defroute:
@@ -252,9 +261,11 @@ class Interface(object):
             cmdout
         except NameError:
             cmdout = None
-        return cmdout
+        defout = {'cmdout': cmdout, 'netrestart': netrestart, 'ostype': self.ostype}
+        return defout
 
     def ch_nicname(self):
+        netrestart = False	# request or not network service restart
         if self.ostype == "windows":
             try:
                 if self.niclabel:
@@ -282,7 +293,8 @@ class Interface(object):
             cmdout
         except NameError:
             cmdout = None
-        return cmdout
+        defout = {'cmdout': cmdout, 'netrestart': netrestart, 'ostype': self.ostype}
+        return defout
 
 def main():
     levels = {
@@ -318,12 +330,24 @@ def main():
 
     nic = Interface(argsdict)
  
-    print(nic.set_ip())
-    print(nic.add_dnssrv())
-    print(nic.add_dnssuff())
-    print(nic.ch_nicname())
-    print(nic.add_route())
-    print(nic.ch_defroute())
+    set_ip = nic.set_ip()
+    print(set_ip)
+    add_dnssrv = nic.add_dnssrv()
+    print(add_dnssrv)
+    add_dnssuff = nic.add_dnssuff()
+    print(add_dnssuff)
+    ch_nicname = nic.ch_nicname()
+    print(ch_nicname)
+    add_route = nic.add_route()
+    print add_route
+    logging.info("Add route command output is: [ %s ] and restart requirements is %s", add_route.get("cmdout"), add_route.get("netrestart"))
+    if add_route.get("netrestart"):
+        if add_route.get("netrestart") == "redhat" or add_route.get("netrestart") == "suse":
+            print "service network restart"
+        else:
+            print 'Windows restart required: shutdown /r /t 1 /f /c "restart due to network configuration change"'
+    ch_defroute = nic.ch_defroute()
+    print(ch_defroute)
 
     logging.info("Update the server object in HPSA")
     call(r"C:\Program Files\Opsware\agent\pylibs\cog\bs_hardware.bat")
@@ -337,4 +361,4 @@ if __name__ == '__main__':
             traceback.print_exc()
             os._exit(1)
 			
-# "C:\Program Files\Opsware\agent\lcpython15\python" c:\temp\winNetConfig.py --nicname nsb-bur-001  --nicip 192.168.0.253 --nicgw 192.168.0.254 --dnsips 4.4.4.2 8.8.8.8 --regdns --dnssuffixes alabala.md --niclabel koko
+# "C:\Program Files\Opsware\agent\lcpython15\python" c:\temp\ipa.py --nicname nsb-bur-001  --nicip 192.168.0.253 --nicgw 192.168.0.254 --dnsips 4.4.4.2 8.8.8.8 --regdns --dnssuffixes alabala.md --niclabel koko
