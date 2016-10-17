@@ -58,9 +58,6 @@ class Interface(object):
         self.routemask = argshash.get("routemask")				# opt
         self.routegw = argshash.get("routegw")					# opt
         self.defroute = argshash.get("defroute")				# opt
-        self.loglevel = argshash.get("loglevel", "INFO")		# default = 'INFO'
-        self.logfile = argshash.get("logfile", "ipa.log")		# default = 'ipa.log'
-        self.quiet = argshash.get("quiet", False)				# default = False
 
     def __repr__(self):
         return "<%s %s at 0x%x>" % (self.__class__.__name__, self.nicname, id(self))
