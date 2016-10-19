@@ -1,3 +1,14 @@
+#!/opt/opsware/agent/bin/python
+#title           :ipa.py
+#description     :Automate IP address management in Migration.
+#author          :Stanimir Kozarev
+#date            :201610.20
+#version         :0.2
+#usage           :python ipa.py
+#notes           :
+#python_version  :2.7.3
+#==============================================================================
+
 import sys
 import os
 import re
@@ -19,6 +30,7 @@ parser.add_argument('--nicmask', default = '255.255.255.0', help='IP mask')
 parser.add_argument('--nicgw', nargs='?', help='IP gateway')
 parser.add_argument('--niclabel', nargs='?', help='configure interface label, optional')
 parser.add_argument('--dnsips', nargs='*', help='list of DNS servers for a given interface separated by space, optional')
+parser.add_argument('--dnslocal', nargs='*', help='configure local DNS domain name, optional')
 parser.add_argument('--dnssuffixes', nargs='*', help='configure DNS Domain Search Suffixes, optional')
 parser.add_argument('--regdns', action='store_true', help='register NIC in DNS, optional')
 parser.add_argument('--routenet', nargs='?', help='static route network ip')
@@ -50,6 +62,7 @@ class Interface(object):
         self.nicgw = argshash.get("nicgw")						# opt
         self.niclabel = argshash.get("niclabel")				# opt
         self.dnsips = argshash.get("dnsips")					# opt
+        self.dnslocal = argshash.get("dnslocal")			    # opt      
         self.dnssuffixes = argshash.get("dnssuffixes")			# opt
         self.regdns = argshash.get("regdns", False)				# default = False
         self.routenet = argshash.get("routenet")				# opt
@@ -212,6 +225,61 @@ class Interface(object):
         else:
             logging.info("DNS list is empty")
             cmdout = "DNS list is empty"
+        try:
+            cmdout
+        except NameError:
+            cmdout = None
+        defout = {'cmdout': cmdout, 'netrestart': netrestart}
+        return defout
+
+    def add_dnslocal(self):
+        netrestart = False	# request or not network service restart
+        if self.dnslocal:
+            if self.ostype == "windows":
+                try:
+                    dnslocal = ""
+                    if hasattr(self.dnslocal, "__iter__"):
+                        dnslocal = self.dnslocal[0]
+                    else:
+                        dnslocal = self.dnslocal
+                    logging.info("Set local DNS suffix: %s", dnslocal)
+                    cmdLine = 'getmac /fo csv /v /NH'
+                    cmdout = Interface.win_cmd(cmdLine)
+                    schstr = self.nicname + '(.*)'
+                    match = re.search(schstr, cmdout, re.MULTILINE)
+                    if hasattr(match, 'group'):
+                        if match.group(1):
+                            intGUID = re.search(r"({.*})", match.group(1))
+                    cmdLine = 'reg add "HKEY_LOCAL_MACHINE\System\CurrentControlSet\Services\Tcpip\Parameters\Interfaces\\' + intGUID.group(1) + '" /v "Domain" /d "' + dnslocal + '" /f'
+                    cmdout = Interface.win_cmd(cmdLine)
+                except:
+                    print "Something Didn't Work in DNS suffixes configuration"
+                    raise RuntimeError('The command failed')
+            if self.ostype == "redhat":
+                try:
+                    print "Set local DNS in Red Had"
+                    dnslocallist = ' '.join(self.dnslocal)
+                    dnsfile = '/etc/resolv.conf'
+                    addline = 'domain ' + dnslocallist + '\n'
+                    Interface.add_subjoin('domain ', dnsfile, dnslocallist , addline)
+                    netrestart = True
+                except:
+                    print "Set local DNS in Red Had failed"
+                    raise RuntimeError('The command failed')
+            if self.ostype == "suse":
+                try:
+                    print "Set local DNS in SUSE"
+                    dnslocallist = ' '.join(self.dnslocal)
+                    dnsfile = '/etc/resolv.conf'
+                    addline = 'domain ' + dnslocallist + '\n'
+                    Interface.add_subjoin('domain ', dnsfile, dnslocallist , addline)
+                    netrestart = True
+                except:
+                    print "Set local DNS in SUSE failed"
+                    raise RuntimeError('The command failed')
+        else:
+            logging.info("Local DNS list is empty")
+            cmdout = "Local DNS list is empty"
         try:
             cmdout
         except NameError:
@@ -461,6 +529,12 @@ def main():
     logging.info("Add DNS servers command output is: [ %s ] and restart requirements is %s", add_dnssrv.get("cmdout"), add_dnssrv.get("netrestart"))
     if add_dnssrv.get("netrestart"): netrestart = True
 
+    # Add Local DNS Suffix
+    add_dnslocal = nic.add_dnslocal()
+    print(add_dnslocal)
+    logging.info("Add DNS suffixes command output is: [ %s ] and restart requirements is %s", add_dnslocal.get("cmdout"), add_dnslocal.get("netrestart"))
+    if add_dnslocal.get("netrestart"): netrestart = True
+    
     # Add DNS Suffixes
     add_dnssuff = nic.add_dnssuff()
     print(add_dnssuff)
