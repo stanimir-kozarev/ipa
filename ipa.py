@@ -374,7 +374,7 @@ class Interface(object):
                     print "SUSE  add static route"
                     routefile = r'/etc/sysconfig/network/routes'
                     with open(routefile, "a") as f:
-                        addline = self.routenet + ' ' + self.routemask + ' ' + self.routegw + '\n'
+                        addline = self.routenet + ' ' + self.routegw + ' ' + self.routemask + '\n'
                         f.write(addline)
                         f.close()
                 except:
