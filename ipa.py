@@ -2,8 +2,8 @@
 #title           :ipa.py
 #description     :Automate IP address management in Migration.
 #author          :Stanimir Kozarev
-#date            :201610.20
-#version         :0.2
+#date            :201611.03
+#version         :0.3
 #usage           :python ipa.py
 #notes           :
 #python_version  :2.7.3
@@ -18,10 +18,11 @@ import inspect
 import traceback
 import platform
 import pprint
-from subprocess import Popen, PIPE
-from subprocess import call
 import ipaddr
 import argparse
+from subprocess import Popen, PIPE
+from subprocess import call
+from _winreg import *
 
 parser = argparse.ArgumentParser(description = 'Set the Network IP Address')
 parser.add_argument('--nicname', default = 'eth0', help='network adapter name')
@@ -90,16 +91,74 @@ class Interface(object):
             filetxt = f.read()
             f.close()
         if re.search(reg, filetxt, re.MULTILINE): # subjoin text to line
-            print "SUBJOIN"
+            logging.info("SUBJOIN")
             cmdLine = "sed -i '/" + reg + "/s/$/ " + subjointxt + " /' " + trgfile
             os.system(cmdLine)
         else:   # add new configuration line
-            print "ADD NEW LINE"
+            logging.info("ADD NEW LINE")
             with open(trgfile, "a") as f:
                 f.write(addline)
                 f.close()
         return
 
+    @staticmethod
+    def add_repl_regkey(full_key, subkey_name, subkey_type, subkey_value, action_type):
+        cur_subkey_value = ''
+        str_hkey, str_key = full_key.split('\\', 1)
+        if str_hkey:
+            if str_hkey == "HKEY_CLASSES_ROOT":
+               keyh = ConnectRegistry(None,HKEY_CLASSES_ROOT)
+            elif str_hkey == "HKEY_CURRENT_USER":
+               keyh = ConnectRegistry(None,HKEY_CURRENT_USER)
+            elif str_hkey == "HKEY_LOCAL_MACHINE":
+               keyh = ConnectRegistry(None,HKEY_LOCAL_MACHINE)
+            elif str_hkey == "HKEY_USERS":
+               keyh = ConnectRegistry(None,HKEY_USERS)
+            elif str_hkey == "HKEY_CURRENT_CONFIG":
+               keyh = ConnectRegistry(None,HKEY_CURRENT_CONFIG)
+            else:
+               logging.info("Non-valid registry key: %s", str_hkey)
+               return
+
+        if subkey_type:
+            if subkey_type == "REG_SZ":
+               subkey_type = 1
+            elif subkey_type == "REG_EXPAND_SZ":
+               subkey_type = 2
+            elif subkey_type == "REG_BINARY":
+               subkey_type = 3
+            elif subkey_type == "REG_DWORD":
+               subkey_type = 4
+            elif subkey_type == "REG_MULTI_SZ":
+               subkey_type = 7
+            else:
+               subkey_type = 0
+
+        if str_key:
+            try:
+                key_handle = OpenKey(keyh, str_key, 0, KEY_ALL_ACCESS)
+            except:
+                key_handle = CreateKey(keyh, str_key)
+        
+        if action_type == "add":    # "add" or "replace"
+            try:
+                sbk_value, sbk_type = QueryValueEx(key_handle, subkey_name)
+                cur_subkey_value = str(sbk_value).strip()
+                logging.info("Current key value is: %s", cur_subkey_value)
+            except WindowsError:
+            # WindowsError: [Error 2] The system cannot find the file specified 
+                logging.info("New empty key: %s", subkey_name)
+                SetValueEx(key_handle, subkey_name, 0, subkey_type, '')
+        elif action_type == "replace":
+            pass # Current key value will be replaced
+        else:
+            pass
+        subkey_value = subkey_value  + (',' + cur_subkey_value if cur_subkey_value else '')
+        SetValueEx(key_handle, subkey_name, 0, subkey_type, subkey_value)
+        sbk_value, sbk_type  = QueryValueEx(key_handle, subkey_name)
+        logging.info("New 'SearchList' value is: %s", str(sbk_value))
+        return
+     
     def set_ip(self):
         netrestart = False	# request or not network service restart
         if self.ostype == "windows":
@@ -110,11 +169,11 @@ class Interface(object):
                 cmdLine = 'netsh int ip show addresses "' + self.nicname + '"' 
                 cmdout = Interface.win_cmd(cmdLine)	
             except:
-                print "Something Didn't Work with IP setup"
+                logging.info("Something Didn't Work with IP setup")
                 raise RuntimeError('The command failed')
         if self.ostype == "redhat":
             try:
-                print "Red Had set IP"
+                logging.info("Red Had set IP")
                 devfile = r'/etc/sysconfig/network-scripts/ifcfg-' + self.nicname
                 with open(devfile, "w") as f:
                     f.write('DEVICE=' + self.nicname + '\n')
@@ -127,11 +186,11 @@ class Interface(object):
                     f.close()
                 netrestart = True
             except:
-                print "Something Didn't Work in Red Had with IP setup"
+                logging.info("Something Didn't Work in Red Had with IP setup")
                 raise RuntimeError('The command failed')
         if self.ostype == "suse":
             try:
-                print "SUSE set IP"
+                logging.info("SUSE set IP")
                 devfile = '/etc/sysconfig/network/ifcfg-' + self.nicname
                 with open(devfile, "w") as f:
                     f.write('DEVICE=' + self.nicname + '\n')
@@ -145,7 +204,7 @@ class Interface(object):
                     f.close()
                 netrestart = True
             except:
-                print "Something Didn't Work in SUSE with IP setup"
+                logging.info("Something Didn't Work in SUSE with IP setup")
                 raise RuntimeError('The command failed')
         try:
             cmdout
@@ -176,11 +235,11 @@ class Interface(object):
                             cmdLine = 'netsh int ip add dns "' + self.nicname + '" ' + self.dnsips[i] + ' index=' + str(i+1)
                             cmdout = Interface.win_cmd(cmdLine)
                 except:
-                    print "Something Didn't Work in DNS configuration"
+                    logging.info("Something Didn't Work in DNS configuration")
                     raise RuntimeError('The command failed')
             if self.ostype == "redhat":
                 try:
-                    print "Red Had set DNS"
+                    logging.info("Red Had set DNS")
                     dnsfile='/etc/resolv.conf'
                     devfile = r'/etc/sysconfig/network-scripts/ifcfg-' + self.nicname
                     dnscount = int(self.dnsips.__len__()) + 1
@@ -197,11 +256,11 @@ class Interface(object):
                     f2.close()
                     netrestart = True
                 except:
-                    print "Something Didn't Work in Red Had DNS configuration"
+                    logging.info("Something Didn't Work in Red Had DNS configuration")
                     raise RuntimeError('The command failed')
             if self.ostype == "suse":
                 try:
-                    print "SUSE set DNS"
+                    logging.info("SUSE set DNS")
                     dnsfile='/etc/resolv.conf'
                     dnsipslist = ' '.join(self.dnsips)
                     dnscount = int(self.dnsips.__len__()) + 1
@@ -220,7 +279,7 @@ class Interface(object):
                         f.close()
                     netrestart = True
                 except:
-                    print "Something Didn't Work in SUSE DNS configuration"
+                    logging.info("Something Didn't Work in SUSE DNS configuration")
                     raise RuntimeError('The command failed')
         else:
             logging.info("DNS list is empty")
@@ -247,35 +306,37 @@ class Interface(object):
                     cmdout = Interface.win_cmd(cmdLine)
                     schstr = self.nicname + '(.*)'
                     match = re.search(schstr, cmdout, re.MULTILINE)
-                    if hasattr(match, 'group'):
-                        if match.group(1):
-                            intGUID = re.search(r"({.*})", match.group(1))
-                    cmdLine = 'reg add "HKEY_LOCAL_MACHINE\System\CurrentControlSet\Services\Tcpip\Parameters\Interfaces\\' + intGUID.group(1) + '" /v "Domain" /d "' + dnslocal + '" /f'
-                    cmdout = Interface.win_cmd(cmdLine)
+                    if hasattr(match, 'group') and match.group(1):
+                        intGUID = re.search(r"({.*})", match.group(1))
+                        full_key = r'HKEY_LOCAL_MACHINE\System\CurrentControlSet\Services\Tcpip\Parameters\Interfaces\\' + intGUID.group(1)
+                        subkey_name = "Domain"
+                        subkey_type = "REG_SZ"
+                        subkey_value = dnslocal
+                        Interface.add_repl_regkey(full_key, subkey_name, subkey_type, subkey_value, "replace")
                 except:
-                    print "Something Didn't Work in DNS suffixes configuration"
+                    logging.info("Something Didn't Work in local DNS configuration")
                     raise RuntimeError('The command failed')
             if self.ostype == "redhat":
                 try:
-                    print "Set local DNS in Red Had"
+                    logging.info("Set local DNS in Red Had")
                     dnslocallist = ' '.join(self.dnslocal)
                     dnsfile = '/etc/resolv.conf'
                     addline = 'domain ' + dnslocallist + '\n'
                     Interface.add_subjoin('domain ', dnsfile, dnslocallist , addline)
                     netrestart = True
                 except:
-                    print "Set local DNS in Red Had failed"
+                    logging.info("Set local DNS in Red Had failed")
                     raise RuntimeError('The command failed')
             if self.ostype == "suse":
                 try:
-                    print "Set local DNS in SUSE"
+                    logging.info("Set local DNS in SUSE")
                     dnslocallist = ' '.join(self.dnslocal)
                     dnsfile = '/etc/resolv.conf'
                     addline = 'domain ' + dnslocallist + '\n'
                     Interface.add_subjoin('domain ', dnsfile, dnslocallist , addline)
                     netrestart = True
                 except:
-                    print "Set local DNS in SUSE failed"
+                    logging.info("Set local DNS in SUSE failed")
                     raise RuntimeError('The command failed')
         else:
             logging.info("Local DNS list is empty")
@@ -293,34 +354,29 @@ class Interface(object):
             if self.ostype == "windows":
                 try:
                     logging.info("DNS suffixes list: %s", self.dnssuffixes)
-                    cmdLine = 'reg query "HKLM\SOFTWARE\Policies\Microsoft\Windows NT\DNSClient" /v "SearchList"'
-                    cmdout = Interface.win_cmd(cmdLine)
-                    dnssuff = re.search(r"SearchList\s+REG_SZ\s+([\w\.\,\ ]+)", cmdout)
-                    curdnssuff = str(dnssuff.group(1)).strip()
-                    if curdnssuff:
-                        curdnssuff = dnssuff.group(1)
-                        dnssuffixes = ",".join(str(bit) for bit in self.dnssuffixes) + (', ' + curdnssuff if curdnssuff else '')
-                    else:
-                        dnssuffixes = ",".join(str(bit) for bit in self.dnssuffixes)
-                    cmdLine = 'reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows NT\DNSClient" /v "SearchList" /d "' + dnssuffixes + '" /f'
-                    cmdout = Interface.win_cmd(cmdLine)
+                    dnssuffixes = ",".join(str(bit) for bit in self.dnssuffixes)
+                    full_key = r'HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\TCPIP\Parameters'                    
+                    subkey_name = "SearchList"
+                    subkey_type = "REG_SZ"
+                    subkey_value = dnssuffixes
+                    Interface.add_repl_regkey(full_key, subkey_name, subkey_type, subkey_value, "add")                        
                 except:
-                    print "Something Didn't Work in DNS suffixes configuration"
+                    logging.info("Something Didn't Work in DNS suffixes configuration")
                     raise RuntimeError('The command failed')
             if self.ostype == "redhat":
                 try:
-                    print "Set DNS suffixes in Red Had"
+                    logging.info("Set DNS suffixes in Red Had")
                     dnssufflist = ' '.join(self.dnssuffixes)
                     dnsfile = '/etc/resolv.conf'
                     addline = 'search ' + dnssufflist + '\n'
                     Interface.add_subjoin('search', dnsfile, dnssufflist , addline)
                     netrestart = True
                 except:
-                    print "Set DNS suffixes in Red Had failed"
+                    logging.info("Set DNS suffixes in Red Had failed")
                     raise RuntimeError('The command failed')
             if self.ostype == "suse":
                 try:
-                    print "Set DNS suffixes in SUSE"
+                    logging.info("Set DNS suffixes in SUSE")
                     dnssufflist = ' '.join(self.dnssuffixes)
                     dnsfile = '/etc/resolv.conf'
                     addline = 'search ' + dnssufflist + '\n'
@@ -333,7 +389,7 @@ class Interface(object):
                         f.close()
                     netrestart = True
                 except:
-                    print "Set DNS suffixes in SUSE failed"
+                    logging.info("Set DNS suffixes in SUSE failed")
                     raise RuntimeError('The command failed')
         else:
             logging.info("DNS suffixes list is empty")
@@ -354,31 +410,30 @@ class Interface(object):
                     cmdout = Interface.win_cmd(cmdLine)
                     logging.info("Added route %s with netmask %s and gateway %s", self.routenet, self.routemask, self.routegw)
                 except:
-                    print "Something Didn't Work with adding static route"
+                    logging.info("Something Didn't Work with adding static route")
                     raise RuntimeError('The command failed')
             if self.ostype == "redhat":
                 try:
-                    print "Red Hat add static route"
+                    logging.info("Red Hat add static route")
                     net_preffix =  ipaddr.IPv4Network(self.routenet + '/' + self.routemask)
-                    print net_preffix.prefixlen
                     routefile = r'/etc/sysconfig/network-scripts/route-' + self.nicname
                     with open(routefile, "a") as f:
                         addline = self.routenet + '/' + str(net_preffix.prefixlen) + ' via ' + self.routegw + '\n'
                         f.write(addline)
                         f.close()
                 except:
-                    print "Something Didn't Work in Red Had with adding static route"
+                    logging.info("Something Didn't Work in Red Had with adding static route")
                     raise RuntimeError('The command failed')
             if self.ostype == "suse":
                 try:
-                    print "SUSE  add static route"
+                    logging.info("SUSE  add static route")
                     routefile = r'/etc/sysconfig/network/routes'
                     with open(routefile, "a") as f:
                         addline = self.routenet + ' ' + self.routegw + ' ' + self.routemask + '\n'
                         f.write(addline)
                         f.close()
                 except:
-                    print "Something Didn't Work in SUSE with adding static route"
+                    logging.info("Something Didn't Work in SUSE with adding static route")
                     raise RuntimeError('The command failed')
         else:
             logging.info("Missing network, mask or gateway argument of the static route")
@@ -407,11 +462,11 @@ class Interface(object):
                             cmdout = Interface.win_cmd(cmdLine)
                     logging.info("The default route has been changed to: %s", self.defroute)
                 except:
-                    print "Something Didn't Work with changing the default route"
+                    logging.info("Something Didn't Work with changing the default route")
                     raise RuntimeError('The command failed')
             if self.ostype == "redhat":
                 try:
-                    print "Changing the default route in Red Hat"
+                    logging.info("Changing the default route in Red Hat")
                     devfile = r'/etc/sysconfig/network-scripts/ifcfg-' + self.nicname
                     os.system("sed -i 's/GATEWAY.*//g' " + devfile)
                     with open(devfile, "a") as f:
@@ -425,11 +480,11 @@ class Interface(object):
                         f.write(addline)
                         f.close()
                 except:
-                    print "Something Didn't Work in Red Had with changing the default route"
+                    logging.info("Something Didn't Work in Red Had with changing the default route")
                     raise RuntimeError('The command failed')
             if self.ostype == "suse":
                 try:
-                    print "Changing the default route in SUSE"
+                    logging.info("Changing the default route in SUSE")
                     routefile = r'/etc/sysconfig/network/routes'
                     os.system("sed -i 's/default.*//g' " + routefile)
                     with open(routefile, "a") as f:
@@ -437,7 +492,7 @@ class Interface(object):
                         f.write(addline)
                         f.close()
                 except:
-                    print "Something Didn't Work in SUSE with changing the default route"
+                    logging.info("Something Didn't Work in SUSE with changing the default route")
                     raise RuntimeError('The command failed')
         else:
             logging.info("The default route has not been changed")
@@ -460,19 +515,19 @@ class Interface(object):
                 else:
                     logging.info("NIC has retained its name")
             except:
-                print "Something Didn't Work with changing the interface name"
+                logging.info("Something Didn't Work with changing the interface name")
                 raise RuntimeError('The command failed')
         if self.ostype == "redhat":
             try:
-                print "Changing the interface name in Red Had"
+                logging.info("Changing the interface name in Red Had")
             except:
-                print "Something Didn't Work with changing the interface name in Red Had"
+                logging.info("Something Didn't Work with changing the interface name in Red Had")
                 raise RuntimeError('The command failed')
         if self.ostype == "suse":
             try:
-                print "Changing the interface name in SUSE"
+                logging.info("Changing the interface name in SUSE")
             except:
-                print "Something Didn't Work with changing the interface name in SUSE"
+                logging.info("Something Didn't Work with changing the interface name in SUSE")
                 raise RuntimeError('The command failed')
         try:
             cmdout
@@ -519,53 +574,59 @@ def main():
 
     # Set IP Data
     set_ip = nic.set_ip()
-    print(set_ip)
+    logging.info(set_ip)
     logging.info("Add set IP command output is: [ %s ] and restart requirements is %s", set_ip.get("cmdout"), set_ip.get("netrestart"))
     if set_ip.get("netrestart"): netrestart = True
 
     # Add DNS Servers
-    add_dnssrv = nic.add_dnssrv()
-    print(add_dnssrv)
-    logging.info("Add DNS servers command output is: [ %s ] and restart requirements is %s", add_dnssrv.get("cmdout"), add_dnssrv.get("netrestart"))
-    if add_dnssrv.get("netrestart"): netrestart = True
+    if args.dnsips:
+        add_dnssrv = nic.add_dnssrv()
+        logging.info(add_dnssrv)
+        logging.info("Add DNS servers command output is: [ %s ] and restart requirements is %s", add_dnssrv.get("cmdout"), add_dnssrv.get("netrestart"))
+        if add_dnssrv.get("netrestart"): netrestart = True
 
     # Add Local DNS Suffix
-    add_dnslocal = nic.add_dnslocal()
-    print(add_dnslocal)
-    logging.info("Add DNS suffixes command output is: [ %s ] and restart requirements is %s", add_dnslocal.get("cmdout"), add_dnslocal.get("netrestart"))
-    if add_dnslocal.get("netrestart"): netrestart = True
+    if args.dnslocal:
+        add_dnslocal = nic.add_dnslocal()
+        logging.info(add_dnslocal)
+        logging.info("Replace local DNS suffix command output is: [ %s ] and restart requirements is %s", add_dnslocal.get("cmdout"), add_dnslocal.get("netrestart"))
+        if add_dnslocal.get("netrestart"): netrestart = True
     
     # Add DNS Suffixes
-    add_dnssuff = nic.add_dnssuff()
-    print(add_dnssuff)
-    logging.info("Add DNS suffixes command output is: [ %s ] and restart requirements is %s", add_dnssuff.get("cmdout"), add_dnssuff.get("netrestart"))
-    if add_dnssuff.get("netrestart"): netrestart = True
+    if args.dnssuffixes:
+        add_dnssuff = nic.add_dnssuff()
+        logging.info(add_dnssuff)
+        logging.info("Add DNS suffixes command output is: [ %s ] and restart requirements is %s", add_dnssuff.get("cmdout"), add_dnssuff.get("netrestart"))
+        if add_dnssuff.get("netrestart"): netrestart = True
 
     # Add Static Route Servers
-    add_route = nic.add_route()
-    print(add_route)
-    logging.info("Add route command output is: [ %s ] and restart requirements is %s", add_route.get("cmdout"), add_route.get("netrestart"))
-    if add_route.get("netrestart"): netrestart = True
+    if args.routenet and args.routemask and args.routegw:
+        add_route = nic.add_route()
+        logging.info(add_route)
+        logging.info("Add route command output is: [ %s ] and restart requirements is %s", add_route.get("cmdout"), add_route.get("netrestart"))
+        if add_route.get("netrestart"): netrestart = True
 
     # Change Default Route
-    ch_defroute = nic.ch_defroute()
-    print(ch_defroute)
-    logging.info("Change default route command output is: [ %s ] and restart requirements is %s", ch_defroute.get("cmdout"), ch_defroute.get("netrestart"))
-    if ch_defroute.get("netrestart"): netrestart = True
+    if args.defroute:
+        ch_defroute = nic.ch_defroute()
+        logging.info(ch_defroute)
+        logging.info("Change default route command output is: [ %s ] and restart requirements is %s", ch_defroute.get("cmdout"), ch_defroute.get("netrestart"))
+        if ch_defroute.get("netrestart"): netrestart = True
 
     # Change Interface Name
-    ch_nicname = nic.ch_nicname()
-    print(ch_nicname)
-    logging.info("Change interface name command output is: [ %s ] and restart requirements is %s", ch_nicname.get("cmdout"), ch_nicname.get("netrestart"))
-    if ch_nicname.get("netrestart"): netrestart = True
+    if args.niclabel:
+        ch_nicname = nic.ch_nicname()
+        logging.info(ch_nicname)
+        logging.info("Change interface name command output is: [ %s ] and restart requirements is %s", ch_nicname.get("cmdout"), ch_nicname.get("netrestart"))
+        if ch_nicname.get("netrestart"): netrestart = True
 
     # Restart Networking Service
     if netrestart:
         if nic.ostype == "redhat" or nic.ostype == "suse":
-            print "service network restart"
+            logging.info("service network restart")
             os.system('sudo service network restart')
         else:
-            print 'Windows restart required'
+            logging.info("Windows restart required")
             os.system('shutdown /r /t 1 /f /c "restart due to network configuration change"')
 
     # Update the server object hardware inventory in HPSA
@@ -582,7 +643,7 @@ if __name__ == '__main__':
         main()
     except Exception, e:
         if str(e) != '1' and str(e) != '2':   # Only complain if this is not a help exit
-            print "I'm getting a sys.exit error '%s' from main" % str(e)
+            logging.info("I'm getting a sys.exit error %s from main", str(e))
             traceback.print_exc()
             os._exit(1)
 
