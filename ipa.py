@@ -22,7 +22,6 @@ import ipaddr
 import argparse
 from subprocess import Popen, PIPE
 from subprocess import call
-from _winreg import *
 
 parser = argparse.ArgumentParser(description = 'Set the Network IP Address')
 parser.add_argument('--nicname', default = 'eth0', help='network adapter name')
@@ -52,6 +51,7 @@ class Interface(object):
         is_suse=(platform.linux_distribution()[0].lower().find("suse") > -1)		
         if is_windows:
             self.ostype = "windows"
+            from _winreg import *
         elif is_redhat:
             self.ostype = "redhat"
         else:
